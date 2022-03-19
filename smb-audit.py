@@ -226,11 +226,11 @@ def main_banner() -> None:
     print('  ╚══════╝╚═╝     ╚═╝╚═════╝     ╚═╝  ╚═╝ ╚═════╝ ╚═════╝ ╚═╝   ╚═╝   \n')
     print('  By: SecuProject - Version: 0.0.1-Dev\n\n')
 def manage_arg() -> str:
-    parser = argparse.ArgumentParser(description='ssh-audit is a tool for SMB configuration auditing.', usage='%(prog)s -t IP_ADDRESS [-p PORT] [-d]')
+    parser = argparse.ArgumentParser(description='ssh-audit is a tool for SMB configuration auditing.', usage='%(prog)s [-t IP_ADDRESS|-l FILE_NAME] [-p PORT] [-d]')
     parser.version = 'smb-audit version: 0.0.1-Dev'
     parser.add_argument('-t','--target', metavar='[IP_ADDRESS]', type=str, help='The IP address of the server (e.g. "192.168.1.1")', required=True)
     parser.add_argument("-p", "--port", metavar='[PORT]', type=int, help="Samba Server Hostname or IP Address",default=445)
-    parser.add_argument("-l", "--list", help="List of ip addresses to scan", type=str)
+    parser.add_argument("-l", "--list", metavar='[FILE_NAME]', help="List of ip addresses to scan", type=str)
     parser.add_argument("-d", "--debug", help="Debug Mode On", action="store_true")
 
     try:

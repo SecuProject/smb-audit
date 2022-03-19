@@ -24,6 +24,7 @@ options:
                         The IP address of the server (e.g. "192.168.1.1")
   -p [PORT], --port [PORT]
                         Samba Server Hostname or IP Address
+  -l LIST, --list LIST  List of ip addresses to scan
   -d, --debug           Debug Mode On
 
 ```
