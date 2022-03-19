@@ -21,12 +21,20 @@ class bcolors:
     ENDC    = '\033[0m'
     BOLD    = '\033[1m'
 
+def print_error(message) -> None:
+    format_msg = '[{}x{}] {}'.format(bcolors.FAIL,bcolors.ENDC,message)
+    print(format_msg)
+    logging.error(message)
+def print_info(message) -> None:
+    format_msg = '[{}i{}] {}'.format(bcolors.BOLD,bcolors.ENDC,message)
+    print(format_msg)
+    logging.info(message)
 
 def highlightGreen(msg:str)->str:
     return bcolors.OKGREEN + msg + bcolors.ENDC
 def highlightRed(msg:str)->str:
     return bcolors.FAIL + msg + bcolors.ENDC
-def StyleBold(msg:str)->str:
+def highlightBold(msg:str)->str:
     return bcolors.BOLD + msg + bcolors.ENDC
 def highlight(msg:str,mode:bool)->str:
     if(mode):
@@ -54,12 +62,12 @@ def login_anonymous(ip_address: str, port:int=445) -> dict:
         smb_client.logoff()
         return [True,server_info]
     except Exception as e:
-        logging.error('Failed %s', e)
+        logging.error('Failed {}'.format(e))
     return [False,None]
 def print_server_information(is_anonymous:bool,server_info:dict) -> None:
     print("[-] Server information\n")
 
-    print("Allow %s login\t" % StyleBold("anonymous"),end="")
+    print("Allow %s login:\t" % highlightBold("guest"),end="")
     if(not is_anonymous):
         print("%s" % highlight("no",True))
         return 
@@ -80,7 +88,7 @@ def test_smb_version(ip_address:str, port:int=445,dialect:Literal=SMB2_DIALECT_3
         if isinstance(smb_client, SMBConnection):
             return True
     except Exception as e:
-        logging.error('Failed %s', e)
+        logging.error('Failed {}'.format(e))
     return False
 
 def check_smb_version(ip_address:str, port:int=445) -> list:
@@ -95,7 +103,7 @@ def check_smb_version(ip_address:str, port:int=445) -> list:
     ]
 
     for version in tab_version:
-        print(StyleBold("SMB %5s" % version['string'])+"\t",end="")
+        print(highlightBold("SMB %5s" % version['string'])+"\t",end="")
         version['isEnable'] = test_smb_version(ip_address,port,version['diablect'])
         if(version['isEnable']):
             print(highlight("offered",version['secure']))
@@ -145,7 +153,7 @@ def check_signing(ip_address:str, port:int,tab_version:list, debug=False):
             try:
                 smb_client = SMBConnection('*SMBSERVER', ip_address, preferredDialect=version['diablect'], sess_port=port)
                 if isinstance(smb_client, SMBConnection):
-                    print("\n%s"% StyleBold("SMB "+version['string']))
+                    print("\n%s"% highlightBold("SMB "+version['string']))
                     print("Require Message Signing \t",end="")
                     if smb_client._SMBConnection._Connection['RequireSigning']:
                         print(highlight("yes",True))
@@ -185,7 +193,7 @@ def check_signing(ip_address:str, port:int,tab_version:list, debug=False):
 
                     print("Encryption Algorithm List:\t"+str(smb_client._SMBConnection.EncryptionAlgorithmList))
             except Exception as e:
-                logging.error('Failed %s', e)
+                logging.error('Failed {}'.format(e))
 
 def port_check(ip_address:str, port:int):
    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -196,7 +204,19 @@ def port_check(ip_address:str, port:int):
    except:
       return False
 
-def MainBanner() -> None:
+def read_file_ip(file_name:str)->dict:
+    tab_ip = []
+    print_info('Opening file:\t{}'.format(highlightBold(file_name)))
+    try:
+        with open(file_name) as p_file:
+            lines = p_file.readlines()
+            for line in lines:
+                tab_ip.append(line.rstrip("\n"))
+    except Exception as e:
+        print_error('Failed {}'.format(e))
+        exit(-1)
+    return tab_ip
+def main_banner() -> None:
     print('')
     print('  ███████╗███╗   ███╗██████╗      █████╗ ██╗   ██╗██████╗ ██╗████████╗')
     print('  ██╔════╝████╗ ████║██╔══██╗    ██╔══██╗██║   ██║██╔══██╗██║╚══██╔══╝')
@@ -205,16 +225,27 @@ def MainBanner() -> None:
     print('  ███████║██║ ╚═╝ ██║██████╔╝    ██║  ██║╚██████╔╝██████╔╝██║   ██║   ')
     print('  ╚══════╝╚═╝     ╚═╝╚═════╝     ╚═╝  ╚═╝ ╚═════╝ ╚═════╝ ╚═╝   ╚═╝   \n')
     print('  By: SecuProject - Version: 0.0.1-Dev\n\n')
-def ManageArg() -> str:
+def manage_arg() -> str:
     parser = argparse.ArgumentParser(description='ssh-audit is a tool for SMB configuration auditing.', usage='%(prog)s -t IP_ADDRESS [-p PORT] [-d]')
     parser.version = 'smb-audit version: 0.0.1-Dev'
     parser.add_argument('-t','--target', metavar='[IP_ADDRESS]', type=str, help='The IP address of the server (e.g. "192.168.1.1")', required=True)
     parser.add_argument("-p", "--port", metavar='[PORT]', type=int, help="Samba Server Hostname or IP Address",default=445)
+    parser.add_argument("-l", "--list", help="List of ip addresses to scan", type=str)
     parser.add_argument("-d", "--debug", help="Debug Mode On", action="store_true")
 
     try:
         args = parser.parse_args()
-    except:
+    except Exception as e:
+        print_error('Failed {}'.format(e))
+        exit(-1)
+
+    if(args.list is not None):
+        target = read_file_ip(args.list)
+    elif(args.target is not None):
+        target = [args.target]
+    else:
+        print_error("Target is required (-t or -l) !")
+        logging.info('Finished')
         exit(0)
 
     if(args.debug):
@@ -222,27 +253,29 @@ def ManageArg() -> str:
     else:
         logging.basicConfig(filename='smb-audit.log', encoding='utf-8', level=logging.INFO,format='%(asctime)s - [%(levelname)s] - %(message)s', datefmt='%d/%m/%Y %I:%M:%S %p')
         
-    return [args.target,args.port]
+    return [target,args.port]
+
+def main(tab_ip_address:dict, port:int)->None:
+    for ip_address in tab_ip_address:
+        if(port_check(ip_address, port)):
+            print_info("Target ip address:\t%s\n\n" % highlightBold(ip_address))
+
+            is_anonymous,server_info = login_anonymous(ip_address, port)
+            print_server_information(is_anonymous, server_info)
+
+            tab_version = check_smb_version(ip_address, port)
+
+            check_signing(ip_address, port, tab_version)
+
+            print("\n\n")
+        else:
+            print_error('The port {} is not open ({}) !'.format(port, ip_address))
+
 
 if __name__ == '__main__':
-    MainBanner()
-    ip_address, port = ManageArg()
+    main_banner()
+    tab_ip_address, port = manage_arg()
 
     logging.info('Started')
-    if(not port_check(ip_address, port)):
-        print("[x] %s\n" % highlightRed("The port %i is not open (%s) !"% (port, ip_address)))
-        logging.error('Port close')
-        logging.info('Finished')
-        exit(1)
-
-
-    print("Target ip address: %s\n\n" % StyleBold(ip_address))
-
-    
-    is_anonymous,server_info = login_anonymous(ip_address, port)
-    print_server_information(is_anonymous, server_info)
-
-    tab_version = check_smb_version(ip_address, port)
-
-    check_signing(ip_address, port, tab_version)
+    main(tab_ip_address, port)
     logging.info('Finished')
