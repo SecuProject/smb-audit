@@ -14,7 +14,7 @@
   By: SecuProject - Version: 0.0.1-Dev
 
 
-usage: smb-audit.py -t IP_ADDRESS [-p PORT] [-d]
+usage: smb-audit.py [-t IP_ADDRESS|-l FILE_NAME] [-p PORT] [-d] [-oj FILE_NAME]
 
 ssh-audit is a tool for SMB configuration auditing.
 
@@ -24,7 +24,9 @@ options:
                         The IP address of the server (e.g. "192.168.1.1")
   -p [PORT], --port [PORT]
                         Samba Server Hostname or IP Address
-  -l LIST, --list LIST  List of ip addresses to scan
+  -l [FILE_NAME], --list [FILE_NAME]
+                        List of ip addresses to scan
+  -oj [FILE_NAME]       Output file in json
   -d, --debug           Debug Mode On
 
 ```
