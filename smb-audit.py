@@ -4,6 +4,7 @@ from impacket import smb
 import argparse
 import socket
 import logging
+import json
 
 # https://www.cyberciti.biz/faq/how-to-configure-samba-to-use-smbv2-and-disable-smbv1-on-linux-or-unix/
 SMB2_DIALECT_002      = 0x0202
@@ -62,7 +63,7 @@ def login_anonymous(ip_address: str, port:int=445) -> dict:
         smb_client.logoff()
         return [True,server_info]
     except Exception as e:
-        logging.error('Failed {}'.format(e))
+        logging.debug('Failed {}'.format(e))
     return [False,None]
 def print_server_information(is_anonymous:bool,server_info:dict) -> None:
     print("[-] Server information\n")
@@ -88,7 +89,7 @@ def test_smb_version(ip_address:str, port:int=445,dialect:Literal=SMB2_DIALECT_3
         if isinstance(smb_client, SMBConnection):
             return True
     except Exception as e:
-        logging.error('Failed {}'.format(e))
+        logging.debug('Failed {}'.format(e))
     return False
 
 def check_smb_version(ip_address:str, port:int=445) -> list:
@@ -147,54 +148,54 @@ def get_capabilities(capabilities:int)-> list:
     return tab_capabilities
 
 
-def check_signing(ip_address:str, port:int,tab_version:list, debug=False):
+def handle_sign_info(msg:str,type:str,is_enable:bool)->dict:
+    print(msg+ " \t",end="")
+    if is_enable:
+        print(highlight("yes",True))
+    else:
+        print(highlight("no",False))
+    return {type:is_enable}
+
+def check_signing(ip_address:str, port:int,tab_version:list, debug=False)->list:
+    tab_info = []
     for version in tab_version:
         if(version['isEnable'] and version['string'] != '1'):
             try:
                 smb_client = SMBConnection('*SMBSERVER', ip_address, preferredDialect=version['diablect'], sess_port=port)
                 if isinstance(smb_client, SMBConnection):
                     print("\n%s"% highlightBold("SMB "+version['string']))
-                    print("Require Message Signing \t",end="")
-                    if smb_client._SMBConnection._Connection['RequireSigning']:
-                        print(highlight("yes",True))
-                    else:
-                        print(highlight("no",False))
-                        
-                    print("Require Secure Negotiate\t",end="")
-                    if smb_client._SMBConnection.RequireSecureNegotiate:
-                        print(highlight("yes",True))
-                    else:
-                        print(highlight("no",False))
-                        
-                    print("Require Message Signing \t",end="")
-                    if smb_client._SMBConnection.RequireMessageSigning:
-                        print(highlight("yes",True))
-                    else:
-                        print(highlight("no",False))
+                    
+                    smb_conn = smb_client._SMBConnection
+                    smb_conn_con = smb_client._SMBConnection._Connection
+                    tab_info_ver = {version['string']:[]}
+                    
+                    dict_req_signing = handle_sign_info("Require Signing\t\t",'RequireSigning',smb_conn_con['RequireSigning'])
+                    dict_req_sec_neg = handle_sign_info("Require Secure Negotiate",'RequireSecureNegotiate',smb_conn.RequireSecureNegotiate)
+                    dict_req_msg_signing = handle_sign_info("Require Message Signing",'RequireMessageSigning',smb_conn.RequireMessageSigning)
+                    
+                    dict_cli_req_msg_signing = handle_sign_info("Client Require Message Signing",'ClientSecurityMode',smb_conn_con['ClientSecurityMode'])
+                    dict_serv_req_msg_signing = handle_sign_info("Server Require Message Signing",'ServerSecurityMode',smb_conn_con['ServerSecurityMode'])
+
+                    tab_info_ver[version['string']].append(dict_req_signing)
+                    tab_info_ver[version['string']].append(dict_req_sec_neg)
+                    tab_info_ver[version['string']].append(dict_req_msg_signing)
+                    tab_info_ver[version['string']].append(dict_cli_req_msg_signing)
+                    tab_info_ver[version['string']].append(dict_serv_req_msg_signing)
 
 
-                    print("Client Require Message Signing \t",end="")
-                    #print("Client Security Mode \t",end="")
-                    if smb_client._SMBConnection._Connection['ClientSecurityMode']:
-                        print(highlight("yes",True))
-                    else:
-                        print(highlight("no",False))
-                    print("Server Require Message Signing \t",end="")
-                    #print("Server Security Mode \t",end="")
-                    if smb_client._SMBConnection._Connection['ServerSecurityMode']:
-                        print(highlight("yes",True))
-                    else:
-                        print(highlight("no",False))
+                    cli_cap = get_capabilities(smb_conn._Connection['ClientCapabilities'])
+                    serv_cap = get_capabilities(smb_conn._Connection['ServerCapabilities'])
+                    print("Client Capabilities:   \t\t"+str(cli_cap))
+                    print("Server Capabilities:   \t\t"+str(serv_cap))
+                    print("Encryption Algorithm List:\t"+str(smb_conn.EncryptionAlgorithmList))
 
-                    print("Client Capabilities:   \t\t"+str(get_capabilities(smb_client._SMBConnection._Connection['ClientCapabilities'])))
-                    get_capabilities(smb_client._SMBConnection._Connection['ClientCapabilities'])
-                    print("Server Capabilities:   \t\t"+str(get_capabilities(smb_client._SMBConnection._Connection['ServerCapabilities'])))
-                    get_capabilities(smb_client._SMBConnection._Connection['ServerCapabilities'])
-
-                    print("Encryption Algorithm List:\t"+str(smb_client._SMBConnection.EncryptionAlgorithmList))
+                    tab_info_ver[version['string']].append({'ClientCapabilities':cli_cap})
+                    tab_info_ver[version['string']].append({'ServerCapabilities':serv_cap})
+                    tab_info_ver[version['string']].append({'EncryptionAlgorithmList':smb_conn.EncryptionAlgorithmList})
+                    tab_info.append(tab_info_ver)
             except Exception as e:
                 logging.error('Failed {}'.format(e))
-
+    return tab_info
 def port_check(ip_address:str, port:int):
    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
    try:
@@ -226,11 +227,12 @@ def main_banner() -> None:
     print('  ╚══════╝╚═╝     ╚═╝╚═════╝     ╚═╝  ╚═╝ ╚═════╝ ╚═════╝ ╚═╝   ╚═╝   \n')
     print('  By: SecuProject - Version: 0.0.1-Dev\n\n')
 def manage_arg() -> str:
-    parser = argparse.ArgumentParser(description='ssh-audit is a tool for SMB configuration auditing.', usage='%(prog)s [-t IP_ADDRESS|-l FILE_NAME] [-p PORT] [-d]')
+    parser = argparse.ArgumentParser(description='ssh-audit is a tool for SMB configuration auditing.', usage='%(prog)s [-t IP_ADDRESS|-l FILE_NAME] [-p PORT] [-d] [-oj FILE_NAME]')
     parser.version = 'smb-audit version: 0.0.1-Dev'
-    parser.add_argument('-t','--target', metavar='[IP_ADDRESS]', type=str, help='The IP address of the server (e.g. "192.168.1.1")', required=True)
+    parser.add_argument('-t','--target', metavar='[IP_ADDRESS]', type=str, help='The IP address of the server (e.g. "192.168.1.1")')
     parser.add_argument("-p", "--port", metavar='[PORT]', type=int, help="Samba Server Hostname or IP Address",default=445)
     parser.add_argument("-l", "--list", metavar='[FILE_NAME]', help="List of ip addresses to scan", type=str)
+    parser.add_argument("-oj", metavar='[FILE_NAME]', help="Output file in json", type=str)
     parser.add_argument("-d", "--debug", help="Debug Mode On", action="store_true")
 
     try:
@@ -248,16 +250,28 @@ def manage_arg() -> str:
         logging.info('Finished')
         exit(0)
 
+    # logging.INFO
     if(args.debug):
         logging.basicConfig(filename='smb-audit.log', encoding='utf-8', level=logging.DEBUG,format='%(asctime)s - [%(levelname)s] - %(message)s', datefmt='%d/%m/%Y %I:%M:%S %p')
     else:
         logging.basicConfig(filename='smb-audit.log', encoding='utf-8', level=logging.INFO,format='%(asctime)s - [%(levelname)s] - %(message)s', datefmt='%d/%m/%Y %I:%M:%S %p')
         
-    return [target,args.port]
+    return [target,args.port,args.oj]
 
-def main(tab_ip_address:dict, port:int)->None:
+
+def output_file(file_path:str,data:dict)->None:
+    with open(file_path, "w") as f:
+        f.write(data)
+        
+def export_json(output_path, tab_info:dict)->None:
+    json_object = json.dumps(tab_info, indent = 4)
+    output_file(output_path,json_object)
+
+def main(tab_ip_address:dict, port:int, oj:str)->None:
+    tab_info = []
     for ip_address in tab_ip_address:
         if(port_check(ip_address, port)):
+            tab_info_ip = {ip_address:[]}
             print_info("Target ip address:\t%s\n\n" % highlightBold(ip_address))
 
             is_anonymous,server_info = login_anonymous(ip_address, port)
@@ -265,17 +279,23 @@ def main(tab_ip_address:dict, port:int)->None:
 
             tab_version = check_smb_version(ip_address, port)
 
-            check_signing(ip_address, port, tab_version)
+            tab_sign_info = check_signing(ip_address, port, tab_version)
 
+            tab_info_ip[ip_address].append(server_info)
+            tab_info_ip[ip_address].append(tab_version)
+            tab_info_ip[ip_address].append(tab_sign_info)
+
+            tab_info.append(tab_info_ip)
             print("\n\n")
         else:
             print_error('The port {} is not open ({}) !'.format(port, ip_address))
-
+    if(oj is not None):
+        export_json(oj, tab_info)
 
 if __name__ == '__main__':
     main_banner()
-    tab_ip_address, port = manage_arg()
+    tab_ip_address, port, path_output = manage_arg()
 
     logging.info('Started')
-    main(tab_ip_address, port)
+    main(tab_ip_address, port, path_output)
     logging.info('Finished')
