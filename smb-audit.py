@@ -1,10 +1,14 @@
 from typing import Literal
+from xmlrpc.client import boolean
 from impacket.smbconnection import SMBConnection
 from impacket import smb
+from netaddr import IPNetwork
 import argparse
 import socket
 import logging
 import json
+import struct
+
 
 # https://www.cyberciti.biz/faq/how-to-configure-samba-to-use-smbv2-and-disable-smbv1-on-linux-or-unix/
 SMB2_DIALECT_002      = 0x0202
@@ -81,6 +85,35 @@ def print_server_information(is_anonymous:bool,server_info:dict) -> None:
     if(server_info['os']):
         print('Server OS: \t\t%s' % server_info['os'])
 
+def check_smbghost(ip_address:str,port:int=445)->boolean:
+    payload = b'\x00\x00\x00\xc0\xfeSMB@\x00\x00\x00\x00\x00\x00\x00\x00\x00\x1f\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00$\x00\x08\x00\x01\x00\x00\x00\x7f\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00x\x00\x00\x00\x02\x00\x00\x00\x02\x02\x10\x02"\x02$\x02\x00\x03\x02\x03\x10\x03\x11\x03\x00\x00\x00\x00\x01\x00&\x00\x00\x00\x00\x00\x01\x00 \x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x03\x00\n\x00\x00\x00\x00\x00\x01\x00\x00\x00\x01\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00'
+
+    sock = socket.socket(socket.AF_INET)
+    sock.connect((ip_address,  port ))
+    sock.send(payload)
+    nb, = struct.unpack(">I", sock.recv(4))
+    res = sock.recv(nb)
+    sock.close()
+
+
+    print(highlightBold("SMBGhost") + " (CVE-2020-0796):\t",end="")
+    if res[68:70] != b"\x11\x03" or res[70:72] != b"\x02\x00":
+        print(highlightGreen("Not vulnerable"))
+        result = False
+    else:
+        print(highlightRed("vulnerable")+ "\tSMBv3: Compression (LZNT1) supported.")
+        result =  True
+    return {"smbghost":result}
+
+def check_vuln(ip_address:str,check_smb_version:dict,port:int=445)->dict:
+    print("\n[-] Check for exploit\n")
+    exploit_list = {"exploit":[]}
+    # check_ms_17_010(ip_address,check_smb_version, port)
+
+    if(check_smb_version["3.1.1"]["isEnable"]):
+        exploit_list["exploit"].append(check_smbghost(ip_address, port))
+    return exploit_list
+
 
 
 def test_smb_version(ip_address:str, port:int=445,dialect:Literal=SMB2_DIALECT_311, debug=False):
@@ -92,24 +125,24 @@ def test_smb_version(ip_address:str, port:int=445,dialect:Literal=SMB2_DIALECT_3
         logging.debug('Failed {}'.format(e))
     return False
 
-def check_smb_version(ip_address:str, port:int=445) -> list:
+def check_smb_version(ip_address:str, port:int=445) -> dict:
     print("\n[-] Testing smb versions\n")
-    tab_version = [
-        {'diablect':smb.SMB_DIALECT,    'string':"1",   'isEnable':False,'secure':False},
-        {'diablect':SMB2_DIALECT_002,   'string':"2.0", 'isEnable':False,'secure':True},
-        {'diablect':SMB2_DIALECT_21,    'string':"2.1", 'isEnable':False,'secure':True},
-        {'diablect':SMB2_DIALECT_30,    'string':"3.0", 'isEnable':False,'secure':True},
-        {'diablect':SMB2_DIALECT_302,   'string':"3.0.2",'isEnable':False,'secure':True},
-        {'diablect':SMB2_DIALECT_311,   'string':"3.1.1",'isEnable':False,'secure':True}
-    ]
+    tab_version = {
+        "1":{'diablect':smb.SMB_DIALECT,        'isEnable':False,'secure':False},
+        "2.0":{'diablect':SMB2_DIALECT_002,     'isEnable':False,'secure':True},
+        "2.1":{'diablect':SMB2_DIALECT_21,      'isEnable':False,'secure':True},
+        "3.0":{'diablect':SMB2_DIALECT_30,      'isEnable':False,'secure':True},
+        "3.0.2":{'diablect':SMB2_DIALECT_302,   'isEnable':False,'secure':True},
+        "3.1.1":{'diablect':SMB2_DIALECT_311,   'isEnable':False,'secure':True}
+    }
 
     for version in tab_version:
-        print(highlightBold("SMB %5s" % version['string'])+"\t",end="")
-        version['isEnable'] = test_smb_version(ip_address,port,version['diablect'])
-        if(version['isEnable']):
-            print(highlight("offered",version['secure']))
+        print(highlightBold("SMB %5s" % version)+"\t",end="")
+        tab_version[version]['isEnable'] = test_smb_version(ip_address,port,tab_version[version]['diablect'])
+        if(tab_version[version]['isEnable']):
+            print(highlight("offered",tab_version[version]['secure']))
         else:
-            print(highlight("not offered",not version['secure']))
+            print(highlight("not offered",not tab_version[version]['secure']))
     return tab_version
         
 def get_capabilities(capabilities:int)-> list:
@@ -159,15 +192,15 @@ def handle_sign_info(msg:str,type:str,is_enable:bool)->dict:
 def check_signing(ip_address:str, port:int,tab_version:list, debug=False)->list:
     tab_info = []
     for version in tab_version:
-        if(version['isEnable'] and version['string'] != '1'):
+        if(tab_version[version]['isEnable'] and version != '1'):
             try:
-                smb_client = SMBConnection('*SMBSERVER', ip_address, preferredDialect=version['diablect'], sess_port=port)
+                smb_client = SMBConnection('*SMBSERVER', ip_address, preferredDialect=tab_version[version]['diablect'], sess_port=port)
                 if isinstance(smb_client, SMBConnection):
-                    print("\n%s"% highlightBold("SMB "+version['string']))
+                    print("\n%s"% highlightBold("SMB "+version))
                     
                     smb_conn = smb_client._SMBConnection
                     smb_conn_con = smb_client._SMBConnection._Connection
-                    tab_info_ver = {version['string']:[]}
+                    tab_info_ver = {version:[]}
                     
                     dict_req_signing = handle_sign_info("Require Signing\t\t",'RequireSigning',smb_conn_con['RequireSigning'])
                     dict_req_sec_neg = handle_sign_info("Require Secure Negotiate",'RequireSecureNegotiate',smb_conn.RequireSecureNegotiate)
@@ -176,11 +209,11 @@ def check_signing(ip_address:str, port:int,tab_version:list, debug=False)->list:
                     dict_cli_req_msg_signing = handle_sign_info("Client Require Message Signing",'ClientSecurityMode',smb_conn_con['ClientSecurityMode'])
                     dict_serv_req_msg_signing = handle_sign_info("Server Require Message Signing",'ServerSecurityMode',smb_conn_con['ServerSecurityMode'])
 
-                    tab_info_ver[version['string']].append(dict_req_signing)
-                    tab_info_ver[version['string']].append(dict_req_sec_neg)
-                    tab_info_ver[version['string']].append(dict_req_msg_signing)
-                    tab_info_ver[version['string']].append(dict_cli_req_msg_signing)
-                    tab_info_ver[version['string']].append(dict_serv_req_msg_signing)
+                    tab_info_ver[version].append(dict_req_signing)
+                    tab_info_ver[version].append(dict_req_sec_neg)
+                    tab_info_ver[version].append(dict_req_msg_signing)
+                    tab_info_ver[version].append(dict_cli_req_msg_signing)
+                    tab_info_ver[version].append(dict_serv_req_msg_signing)
 
 
                     cli_cap = get_capabilities(smb_conn._Connection['ClientCapabilities'])
@@ -189,9 +222,9 @@ def check_signing(ip_address:str, port:int,tab_version:list, debug=False)->list:
                     print("Server Capabilities:   \t\t"+str(serv_cap))
                     print("Encryption Algorithm List:\t"+str(smb_conn.EncryptionAlgorithmList))
 
-                    tab_info_ver[version['string']].append({'ClientCapabilities':cli_cap})
-                    tab_info_ver[version['string']].append({'ServerCapabilities':serv_cap})
-                    tab_info_ver[version['string']].append({'EncryptionAlgorithmList':smb_conn.EncryptionAlgorithmList})
+                    tab_info_ver[version].append({'ClientCapabilities':cli_cap})
+                    tab_info_ver[version].append({'ServerCapabilities':serv_cap})
+                    tab_info_ver[version].append({'EncryptionAlgorithmList':smb_conn.EncryptionAlgorithmList})
                     tab_info.append(tab_info_ver)
             except Exception as e:
                 logging.error('Failed {}'.format(e))
@@ -228,8 +261,8 @@ def main_banner() -> None:
     print('  By: SecuProject - Version: 0.0.1-Dev\n\n')
 def manage_arg() -> str:
     parser = argparse.ArgumentParser(description='ssh-audit is a tool for SMB configuration auditing.', usage='%(prog)s [-t IP_ADDRESS|-l FILE_NAME] [-p PORT] [-d] [-oj FILE_NAME]')
-    parser.version = 'smb-audit version: 0.0.1-Dev'
-    parser.add_argument('-t','--target', metavar='[IP_ADDRESS]', type=str, help='The IP address of the server (e.g. "192.168.1.1")')
+    parser.version = 'smb-audit version: 0.0.2-Dev'
+    parser.add_argument('-t','--target', metavar='[IP_ADDRESS]', type=str, help='The IP address/Range of the server (e.g. "192.168.1.1 or 192.168.1.0/24")')
     parser.add_argument("-p", "--port", metavar='[PORT]', type=int, help="Samba Server Hostname or IP Address",default=445)
     parser.add_argument("-l", "--list", metavar='[FILE_NAME]', help="List of ip addresses to scan", type=str)
     parser.add_argument("-oj", metavar='[FILE_NAME]', help="Output file in json", type=str)
@@ -244,9 +277,12 @@ def manage_arg() -> str:
     if(args.list is not None):
         target = read_file_ip(args.list)
     elif(args.target is not None):
-        target = [args.target]
+        target = []
+        for addr in IPNetwork(args.target):
+            target.append(str(addr))
+        #target = [args.target]
     else:
-        print_error("Target is required (-t or -l) !")
+        print('[{}x{}] Target is required (-t or -l) !\n'.format(bcolors.FAIL,bcolors.ENDC))
         logging.info('Finished')
         exit(0)
 
@@ -280,10 +316,14 @@ def main(tab_ip_address:dict, port:int, oj:str)->None:
             tab_version = check_smb_version(ip_address, port)
 
             tab_sign_info = check_signing(ip_address, port, tab_version)
+            
+            exploit_list = check_vuln(ip_address,tab_version, port)
+
 
             tab_info_ip[ip_address].append(server_info)
             tab_info_ip[ip_address].append(tab_version)
             tab_info_ip[ip_address].append(tab_sign_info)
+            tab_info_ip[ip_address].append(exploit_list)
 
             tab_info.append(tab_info_ip)
             print("\n\n")
