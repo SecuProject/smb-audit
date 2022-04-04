@@ -17,6 +17,8 @@ SMB2_DIALECT_30       = 0x0300
 SMB2_DIALECT_302      = 0x0302  #SMB 3.0.2
 SMB2_DIALECT_311      = 0x0311  #SMB 3.1.1
 
+RECV_BUFFER           = 1024
+
 class bcolors:
     HEADER  = '\033[95m'
     OKBLUE  = '\033[94m'
@@ -85,33 +87,90 @@ def print_server_information(is_anonymous:bool,server_info:dict) -> None:
     if(server_info['os']):
         print('Server OS: \t\t%s' % server_info['os'])
 
-def check_smbghost(ip_address:str,port:int=445)->boolean:
-    payload = b'\x00\x00\x00\xc0\xfeSMB@\x00\x00\x00\x00\x00\x00\x00\x00\x00\x1f\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00$\x00\x08\x00\x01\x00\x00\x00\x7f\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00x\x00\x00\x00\x02\x00\x00\x00\x02\x02\x10\x02"\x02$\x02\x00\x03\x02\x03\x10\x03\x11\x03\x00\x00\x00\x00\x01\x00&\x00\x00\x00\x00\x00\x01\x00 \x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x03\x00\n\x00\x00\x00\x00\x00\x01\x00\x00\x00\x01\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00'
+def recv_smb(sock:socket) -> bytes:
+	nb, = struct.unpack(">I", sock.recv(4))
+	return sock.recv(nb)
+def check_ms17_010(ip_address:str,port:int= 445) -> boolean:
+	NEGOTIATE_PROTOCOL_REQUEST = b'\x00\x00\x00\x85\xffSMB\x72\x00\x00\x00\x00\x18\x53\xc0\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xfe\x00\x00\x40\x00\x00\x62\x00\x02\x50\x43\x20\x4e\x45\x54\x57\x4f\x52\x4b\x20\x50\x52\x4f\x47\x52\x41\x4d\x20\x31\x2e\x30\x00\x02\x4c\x41\x4e\x4d\x41\x4e\x31\x2e\x30\x00\x02\x57\x69\x6e\x64\x6f\x77\x73\x20\x66\x6f\x72\x20\x57\x6f\x72\x6b\x67\x72\x6f\x75\x70\x73\x20\x33\x2e\x31\x61\x00\x02\x4c\x4d\x31\x2e\x32\x58\x30\x30\x32\x00\x02\x4c\x41\x4e\x4d\x41\x4e\x32\x2e\x31\x00\x02\x4e\x54\x20\x4c\x4d\x20\x30\x2e\x31\x32\x00'
+	SESSION_SETUP_REQUEST = b'\x00\x00\x00\x88\xffSMB\x73\x00\x00\x00\x00\x18\x07\xc0\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xfe\x00\x00\x40\x00\x0d\xff\x00\x88\x00\x04\x11\x0a\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\xd4\x00\x00\x00\x4b\x00\x00\x00\x00\x00\x00\x57\x00\x69\x00\x6e\x00\x64\x00\x6f\x00\x77\x00\x73\x00\x20\x00\x32\x00\x30\x00\x30\x00\x30\x00\x20\x00\x32\x00\x31\x00\x39\x00\x35\x00\x00\x00\x57\x00\x69\x00\x6e\x00\x64\x00\x6f\x00\x77\x00\x73\x00\x20\x00\x32\x00\x30\x00\x30\x00\x30\x00\x20\x00\x35\x00\x2e\x00\x30\x00\x00\x00'
+	TREE_CONNECT_REQUEST = b'\x00\x00\x00\x60\xffSMB\x75\x00\x00\x00\x00\x18\x07\xc0\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xfe\x00\x08\x40\x00\x04\xff\x00\x60\x00\x08\x00\x01\x00\x35\x00\x00\x5c\x00\x5c\x00\x31\x00\x39\x00\x32\x00\x2e\x00\x31\x00\x36\x00\x38\x00\x2e\x00\x31\x00\x37\x00\x35\x00\x2e\x00\x31\x00\x32\x00\x38\x00\x5c\x00\x49\x00\x50\x00\x43\x00\x24\x00\x00\x00\x3f\x3f\x3f\x3f\x3f\x00'
+	NAMED_PIPE_TRANS_REQUEST = b'\x00\x00\x00\x4a\xffSMB\x25\x00\x00\x00\x00\x18\x01\x28\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x08\x8e\xa3\x01\x08\x52\x98\x10\x00\x00\x00\x00\xff\xff\xff\xff\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x4a\x00\x00\x00\x4a\x00\x02\x00\x23\x00\x00\x00\x07\x00\x5c\x50\x49\x50\x45\x5c\x00'
 
+	sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+	sock.connect((ip_address, port))
+	sock.send(NEGOTIATE_PROTOCOL_REQUEST)
+
+	negotiate_reply = recv_smb(sock)
+	if len(negotiate_reply) < 32 or struct.unpack("<I", negotiate_reply[5:9])[0] != 0 :  # negotiate_reply[9:13]
+		return False
+
+	sock.send(SESSION_SETUP_REQUEST)
+	session_setup_response = sock.recv(RECV_BUFFER)
+	if len(session_setup_response) < 34:
+		return False
+
+	user_id = session_setup_response[32:34]
+
+	modified_tree_connect_request = list(TREE_CONNECT_REQUEST)
+	modified_tree_connect_request[32] = user_id[0]
+	modified_tree_connect_request[33] = user_id[1]
+	modified_tree_connect_request =  bytes(modified_tree_connect_request)
+
+	sock.send(modified_tree_connect_request)
+	tree_connect_response = sock.recv(RECV_BUFFER)
+
+	tree_id = tree_connect_response[28:30]
+	modified_trans2_session_setup = list(NAMED_PIPE_TRANS_REQUEST)
+	modified_trans2_session_setup[28] = tree_id[0]
+	modified_trans2_session_setup[29] = tree_id[1]
+	modified_trans2_session_setup[32] = user_id[0]
+	modified_trans2_session_setup[33] = user_id[1]
+	modified_trans2_session_setup = bytes(modified_trans2_session_setup)
+
+	sock.send(modified_trans2_session_setup)
+	final_response = sock.recv(RECV_BUFFER)
+    
+	result = final_response[9:13] == b"\x05\x02\x00\xc0"
+	sock.close()
+	return result
+def check_smbghost(ip_address:str,port:int=445) -> boolean:
+    payload = b'\x00\x00\x00\xc0\xfeSMB@\x00\x00\x00\x00\x00\x00\x00\x00\x00\x1f\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00$\x00\x08\x00\x01\x00\x00\x00\x7f\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00x\x00\x00\x00\x02\x00\x00\x00\x02\x02\x10\x02"\x02$\x02\x00\x03\x02\x03\x10\x03\x11\x03\x00\x00\x00\x00\x01\x00&\x00\x00\x00\x00\x00\x01\x00 \x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x03\x00\n\x00\x00\x00\x00\x00\x01\x00\x00\x00\x01\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00'
+    
     sock = socket.socket(socket.AF_INET)
     sock.connect((ip_address,  port ))
     sock.send(payload)
-    nb, = struct.unpack(">I", sock.recv(4))
-    res = sock.recv(nb)
+    res = recv_smb(sock)
     sock.close()
-
-
-    print(highlightBold("SMBGhost") + " (CVE-2020-0796):\t",end="")
-    if res[68:70] != b"\x11\x03" or res[70:72] != b"\x02\x00":
-        print(highlightGreen("Not vulnerable"))
-        result = False
-    else:
-        print(highlightRed("vulnerable")+ "\tSMBv3: Compression (LZNT1) supported.")
-        result =  True
-    return {"smbghost":result}
+    
+    return (res[68:70] != b"\x11\x03" or res[70:72] != b"\x02\x00")
 
 def check_vuln(ip_address:str,check_smb_version:dict,port:int=445)->dict:
     print("\n[-] Check for exploit\n")
-    exploit_list = {"exploit":[]}
-    # check_ms_17_010(ip_address,check_smb_version, port)
+    exploit_list = {
+        "exploit":{
+            #"MS08-067"     :False,   # MS08-067      - SMBv1
+            #""             :False,   # CVE-2012-1182 - SAMBA   Samba 3.0.x - 3.6.3 (inclusive)
+            #"ms10-054"     :False,   # ms10-054      - SMBv1
+            #"ms10-061"     :False,   # ms10-061      - SMBv1
+            #"SambaCry"     :False    # CVE-2017-7494 - SAMBA   Samba 3.x after 3.5.0 and 4.x before 4.4.14, 4.5.x before 4.5.10, and 4.6.x before 4.6.4
+            "eternalblue"   :False,   # MS17-010      - SMBv1
+            "smbghost"      :False    # CVE-2020-0796 - SMBv3
+        }
+    }
 
-    if(check_smb_version["3.1.1"]["isEnable"]):
-        exploit_list["exploit"].append(check_smbghost(ip_address, port))
+    print(highlightBold("EternalBlue") + " (MS17-010):\t\t",end="")
+    if(check_smb_version["1"]["isEnable"] and check_ms17_010(ip_address, port)):
+        print(highlightRed("vulnerable"))
+        exploit_list["exploit"]["eternalblue"] = True
+    else:
+        print(highlightGreen("Not vulnerable"))
+    
+    print(highlightBold("SMBGhost") + " (CVE-2020-0796):\t",end="")
+    if(check_smb_version["3.1.1"]["isEnable"] and check_smbghost(ip_address, port)):
+        print(highlightRed("Vulnerable")+ "\tSMBv3: Compression (LZNT1) supported.")
+        exploit_list["exploit"]["smbghost"] = True
+    else:
+        print(highlightGreen("Not vulnerable"))
     return exploit_list
 
 
@@ -230,10 +289,10 @@ def check_signing(ip_address:str, port:int,tab_version:list, debug=False)->list:
                 logging.error('Failed {}'.format(e))
     return tab_info
 def port_check(ip_address:str, port:int):
-   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+   sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
    try:
-      s.connect((ip_address, port))
-      s.shutdown(2)
+      sock.connect((ip_address, port))
+      sock.shutdown(2)
       return True
    except:
       return False
@@ -250,6 +309,7 @@ def read_file_ip(file_name:str)->dict:
         print_error('Failed {}'.format(e))
         exit(-1)
     return tab_ip
+
 def main_banner() -> None:
     print('')
     print('  ███████╗███╗   ███╗██████╗      █████╗ ██╗   ██╗██████╗ ██╗████████╗')
@@ -259,6 +319,7 @@ def main_banner() -> None:
     print('  ███████║██║ ╚═╝ ██║██████╔╝    ██║  ██║╚██████╔╝██████╔╝██║   ██║   ')
     print('  ╚══════╝╚═╝     ╚═╝╚═════╝     ╚═╝  ╚═╝ ╚═════╝ ╚═════╝ ╚═╝   ╚═╝   \n')
     print('  By: SecuProject - Version: 0.0.1-Dev\n\n')
+
 def manage_arg() -> str:
     parser = argparse.ArgumentParser(description='ssh-audit is a tool for SMB configuration auditing.', usage='%(prog)s [-t IP_ADDRESS|-l FILE_NAME] [-p PORT] [-d] [-oj FILE_NAME]')
     parser.version = 'smb-audit version: 0.0.2-Dev'
@@ -280,13 +341,11 @@ def manage_arg() -> str:
         target = []
         for addr in IPNetwork(args.target):
             target.append(str(addr))
-        #target = [args.target]
     else:
         print('[{}x{}] Target is required (-t or -l) !\n'.format(bcolors.FAIL,bcolors.ENDC))
         logging.info('Finished')
         exit(0)
 
-    # logging.INFO
     if(args.debug):
         logging.basicConfig(filename='smb-audit.log', encoding='utf-8', level=logging.DEBUG,format='%(asctime)s - [%(levelname)s] - %(message)s', datefmt='%d/%m/%Y %I:%M:%S %p')
     else:
