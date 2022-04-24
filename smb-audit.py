@@ -85,9 +85,12 @@ def get_server_info(smb_client: SMBConnection) -> dict:
     server_info['name']    = smb_client.getServerName()
     server_info['os']      = smb_client.getServerOS()
 
-    server_info['OSBuild'] = smb_client.getServerOSBuild()
-    server_info['OSMajor'] = smb_client.getServerOSMajor()
-    server_info['OSMinor'] = smb_client.getServerOSMinor()
+    try:
+        server_info['OSBuild'] = smb_client.getServerOSBuild()
+        server_info['OSMajor'] = smb_client.getServerOSMajor()
+        server_info['OSMinor'] = smb_client.getServerOSMinor()
+    except Exception:
+        pass
     
     server_info['isLinux'] = (
         server_info['os'] == 'Windows 6.1 Build 0' and 
