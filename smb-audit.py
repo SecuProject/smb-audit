@@ -260,7 +260,7 @@ def check_vuln(ip_address:str, port:int, server_info:dict, check_smb_version:dic
         print(highlightGreen("Not vulnerable"))
     
     print(highlightBold("SMBGhost") + " (CVE-2020-0796):\t",end="")
-    if(check_smb_version["3.1.1"]["isEnable"] and check_smbghost(ip_address, port)):
+    if(check_smb_version["3.1.1"]["isEnable"] and not server_info["isLinux"] and check_smbghost(ip_address, port)):
         print(highlightRed("Vulnerable")+ "\tSMBv3: Compression (LZNT1) supported.")
         exploit_list["exploit"]["smbghost"] = True
     else:
