@@ -91,7 +91,7 @@ def get_server_info(smb_client: SMBConnection) -> dict:
         server_info['OSMinor'] = smb_client.getServerOSMinor()
     except Exception:
         pass
-    
+
     server_info['isLinux'] = (
         server_info['os'] == 'Windows 6.1 Build 0' and 
         server_info['OSBuild'] == 0 and 
@@ -140,7 +140,7 @@ def login_anonymous(ip_address: str, port:int=445) -> dict:
 def print_server_information(ip_address:str, is_anonymous:bool, server_info:dict, share_list:list) -> None:
     print_title("Server information")
 
-    print("Ip address:\t%s" % highlightBold(ip_address))
+    print("IP address:\t%s" % highlightBold(ip_address))
 
     if(server_info['domain']):
         print('Server domain:\t%s' % server_info['domain'])
@@ -222,11 +222,12 @@ def check_vuln(ip_address:str, port:int, server_info:dict, check_smb_version:dic
     print_title("Check for exploit")
     exploit_list = {
         "exploit":{
+            "cve_2007_2447" :False,   # CVE-2007-2447 - SAMBA   Samba 3.0.0 - 3.0.25rc3 (inclusive)
             #"MS08-067"     :False,   # MS08-067      - SMBv1
             "cve_2012_182"  :False,   # CVE-2012-1182 - SAMBA   Samba 3.0.x - 3.6.3 (inclusive)
             #"ms10-054"     :False,   # ms10-054      - SMBv1
             #"ms10-061"     :False,   # ms10-061      - SMBv1
-            "SambaCry"      :False,    # CVE-2017-7494 - SAMBA   Samba 3.x after 3.5.0 and 4.x before 4.4.14, 4.5.x before 4.5.10, and 4.6.x before 4.6.4
+            "SambaCry"      :False,   # CVE-2017-7494 - SAMBA   Samba 3.x after 3.5.0 and 4.x before 4.4.14, 4.5.x before 4.5.10, and 4.6.x before 4.6.4
             "eternalblue"   :False,   # MS17-010      - SMBv1
             "smbghost"      :False    # CVE-2020-0796 - SMBv3
         }
@@ -234,7 +235,14 @@ def check_vuln(ip_address:str, port:int, server_info:dict, check_smb_version:dic
     if(check_smb_version["1"]["isEnable"] and server_info["isLinux"]):
         samba_version = get_samba_version(ip_address, port)
 
-        # CVE-2012-1182 - Samba 3.0.x - 3.6.3 (inclusive)
+        # CVE-2007-2447 - Samba 3.0.0 - 3.0.25rc3 (inclusive)
+        print(highlightBold("CVE-2007-2447") + ":\t\t\t",end="")
+        if(samba_version[0] == 3 and samba_version[1] == 0  and samba_version[2] <= 25):
+            print(highlightRed("Vulnerable"))
+            exploit_list["exploit"]["cve_2007_2447"] = True
+        else:
+            print(highlightGreen("Not vulnerable"))
+
         print(highlightBold("CVE-2012-1182") + ":\t\t\t",end="")
         if(samba_version[0] == 3 and (samba_version[1] < 6  or
         samba_version[1] == 6 and samba_version[2] <= 3)):
