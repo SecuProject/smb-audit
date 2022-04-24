@@ -8,7 +8,12 @@ import socket
 import logging
 import json
 import struct
+import re
 
+NEGOTIATE_PROTOCOL_REQUEST = b'\x00\x00\x00\x85\xffSMB\x72\x00\x00\x00\x00\x18\x53\xc0\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xfe\x00\x00\x40\x00\x00\x62\x00\x02\x50\x43\x20\x4e\x45\x54\x57\x4f\x52\x4b\x20\x50\x52\x4f\x47\x52\x41\x4d\x20\x31\x2e\x30\x00\x02\x4c\x41\x4e\x4d\x41\x4e\x31\x2e\x30\x00\x02\x57\x69\x6e\x64\x6f\x77\x73\x20\x66\x6f\x72\x20\x57\x6f\x72\x6b\x67\x72\x6f\x75\x70\x73\x20\x33\x2e\x31\x61\x00\x02\x4c\x4d\x31\x2e\x32\x58\x30\x30\x32\x00\x02\x4c\x41\x4e\x4d\x41\x4e\x32\x2e\x31\x00\x02\x4e\x54\x20\x4c\x4d\x20\x30\x2e\x31\x32\x00'
+SESSION_SETUP_REQUEST = b'\x00\x00\x00\x88\xffSMB\x73\x00\x00\x00\x00\x18\x07\xc0\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xfe\x00\x00\x40\x00\x0d\xff\x00\x88\x00\x04\x11\x0a\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\xd4\x00\x00\x00\x4b\x00\x00\x00\x00\x00\x00\x57\x00\x69\x00\x6e\x00\x64\x00\x6f\x00\x77\x00\x73\x00\x20\x00\x32\x00\x30\x00\x30\x00\x30\x00\x20\x00\x32\x00\x31\x00\x39\x00\x35\x00\x00\x00\x57\x00\x69\x00\x6e\x00\x64\x00\x6f\x00\x77\x00\x73\x00\x20\x00\x32\x00\x30\x00\x30\x00\x30\x00\x20\x00\x35\x00\x2e\x00\x30\x00\x00\x00'
+TREE_CONNECT_REQUEST = b'\x00\x00\x00\x60\xffSMB\x75\x00\x00\x00\x00\x18\x07\xc0\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xfe\x00\x08\x40\x00\x04\xff\x00\x60\x00\x08\x00\x01\x00\x35\x00\x00\x5c\x00\x5c\x00\x31\x00\x39\x00\x32\x00\x2e\x00\x31\x00\x36\x00\x38\x00\x2e\x00\x31\x00\x37\x00\x35\x00\x2e\x00\x31\x00\x32\x00\x38\x00\x5c\x00\x49\x00\x50\x00\x43\x00\x24\x00\x00\x00\x3f\x3f\x3f\x3f\x3f\x00'
+NAMED_PIPE_TRANS_REQUEST = b'\x00\x00\x00\x4a\xffSMB\x25\x00\x00\x00\x00\x18\x01\x28\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x08\x8e\xa3\x01\x08\x52\x98\x10\x00\x00\x00\x00\xff\xff\xff\xff\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x4a\x00\x00\x00\x4a\x00\x02\x00\x23\x00\x00\x00\x07\x00\x5c\x50\x49\x50\x45\x5c\x00'
 
 # https://www.cyberciti.biz/faq/how-to-configure-samba-to-use-smbv2-and-disable-smbv1-on-linux-or-unix/
 SMB2_DIALECT_002      = 0x0202
@@ -28,15 +33,6 @@ class bcolors:
     ENDC    = '\033[0m'
     BOLD    = '\033[1m'
 
-def print_error(message) -> None:
-    format_msg = '[{}x{}] {}'.format(bcolors.FAIL,bcolors.ENDC,message)
-    print(format_msg)
-    logging.error(message)
-def print_info(message) -> None:
-    format_msg = '[{}i{}] {}'.format(bcolors.BOLD,bcolors.ENDC,message)
-    print(format_msg)
-    logging.info(message)
-
 def highlightGreen(msg:str)->str:
     return bcolors.OKGREEN + msg + bcolors.ENDC
 def highlightRed(msg:str)->str:
@@ -49,6 +45,39 @@ def highlight(msg:str,mode:bool)->str:
     else:
         return highlightRed(msg)
 
+def print_error(message) -> None:
+    format_msg = '[{}x{}] {}'.format(bcolors.FAIL,bcolors.ENDC,message)
+    print(format_msg)
+    logging.error(message)
+def print_info(message) -> None:
+    format_msg = '[{}i{}] {}'.format(bcolors.BOLD,bcolors.ENDC,message)
+    print(format_msg)
+    logging.info(message)
+def print_title(message) -> None:
+    format_msg = '\n[{}-{}] {}\n'.format(bcolors.WARNING,bcolors.ENDC, highlightBold(message))
+    print(format_msg)
+
+
+def get_samba_version(ip_address: str, port:int=445) -> list:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.connect((ip_address, port))
+
+    sock.send(NEGOTIATE_PROTOCOL_REQUEST)
+    recv_smb(sock)
+
+    sock.send(SESSION_SETUP_REQUEST)
+    session_setup_response = sock.recv(RECV_BUFFER)
+    if len(session_setup_response) >= 44:
+        smb_version = session_setup_response[44:].decode('utf-8').replace("\x00","")
+        version = re.findall(r'\d+', smb_version)
+        samba_version = []
+        if(len(version) == 5):
+            samba_version.append(int(version[2]))
+            samba_version.append(int(version[3]))
+            samba_version.append(int(version[4]))
+            print(f"Server version:\t\t\tSAMBA {version[2]}.{version[3]}.{version[4]}\n")
+            return samba_version
+    return []
 def get_server_info(smb_client: SMBConnection) -> dict:
     server_info = {}
 
@@ -59,43 +88,84 @@ def get_server_info(smb_client: SMBConnection) -> dict:
     server_info['OSBuild'] = smb_client.getServerOSBuild()
     server_info['OSMajor'] = smb_client.getServerOSMajor()
     server_info['OSMinor'] = smb_client.getServerOSMinor()
+    
+    server_info['isLinux'] = (
+        server_info['os'] == 'Windows 6.1 Build 0' and 
+        server_info['OSBuild'] == 0 and 
+        server_info['OSMajor'] == 6 and
+        server_info['OSMinor'] == 1)
 
     return server_info
+def list_dir(smb_client: SMBConnection) -> list:
+    share_list = []
+    try:
+        for share in smb_client.listShares():
+            share_name = share['shi1_netname'][:-1]
+            share_remark = share['shi1_remark'][:-1]
+            share_list.append({"name":share_name,"desc":share_remark,"perm":[]})
+
+            try:
+                smb_client.listPath(share_name, '*')
+                share_list['perm'].append('READ')
+            except Exception:
+                pass
+            try:
+                smb_client.createDirectory(share_name, "tempTest1337_445498456541")
+                smb_client.deleteDirectory(share_name, "tempTest1337_445498456541")
+                share_list['perm'].append('WRITE')
+            except Exception:
+                pass
+
+    except Exception as e:
+        logging.debug(e)
+    return share_list
 def login_anonymous(ip_address: str, port:int=445) -> dict:
     smb_client = SMBConnection('*SMBSERVER', ip_address, sess_port=port) # , preferredDialect=dialect
+    is_anonymous = False
+    share_list = ""
+
     try:
         smb_client.login('', '')
-        server_info = get_server_info(smb_client)
+        share_list = list_dir(smb_client)
         smb_client.logoff()
-        return [True,server_info]
+        is_anonymous = True
     except Exception as e:
         logging.debug('Failed {}'.format(e))
-    return [False,None]
-def print_server_information(is_anonymous:bool,server_info:dict) -> None:
-    print("[-] Server information\n")
+    server_info = get_server_info(smb_client)
+    return [is_anonymous,server_info,share_list]
 
-    print("Allow %s login:\t" % highlightBold("guest"),end="")
-    if(not is_anonymous):
-        print("%s" % highlight("no",True))
-        return 
-    print("%s" % highlight("yes",False))
+def print_server_information(ip_address:str, is_anonymous:bool, server_info:dict, share_list:list) -> None:
+    print_title("Server information")
+
+    print("Ip address:\t%s" % highlightBold(ip_address))
 
     if(server_info['domain']):
-        print('Server domain:\t\t%s' % server_info['domain'])
+        print('Server domain:\t%s' % server_info['domain'])
     if(server_info['name']):
-        print('Server name: \t\t%s' % server_info['name'])
+        print('Server name: \t%s' % server_info['name'])
     if(server_info['os']):
-        print('Server OS: \t\t%s' % server_info['os'])
+        print('Server OS: \t%s' % server_info['os'])
+
+    print("Guest login:\t",end="")
+    if(not is_anonymous):
+        print("%s" % highlight("Not allow",True))
+    else: 
+        print("%s" % highlight("Allow",False))
+        if(share_list):
+            print_title("Share drives")
+            print("{0:<20} {1:<20} {2:25}\n".format("Share Name","Permission","Description"))
+            for share in share_list:
+                if(share['perm'] == []):
+                    perm = highlightBold("None") # None
+                    #perm = highlightRed(' '.join(["READ","WRITE"]))
+                else:
+                    perm = highlightRed(' '.join(share['perm']))
+                print("{0:<20} {1:<28} {2:25}".format(share['name'], perm, share['desc']))
 
 def recv_smb(sock:socket) -> bytes:
 	nb, = struct.unpack(">I", sock.recv(4))
 	return sock.recv(nb)
 def check_ms17_010(ip_address:str,port:int= 445) -> boolean:
-	NEGOTIATE_PROTOCOL_REQUEST = b'\x00\x00\x00\x85\xffSMB\x72\x00\x00\x00\x00\x18\x53\xc0\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xfe\x00\x00\x40\x00\x00\x62\x00\x02\x50\x43\x20\x4e\x45\x54\x57\x4f\x52\x4b\x20\x50\x52\x4f\x47\x52\x41\x4d\x20\x31\x2e\x30\x00\x02\x4c\x41\x4e\x4d\x41\x4e\x31\x2e\x30\x00\x02\x57\x69\x6e\x64\x6f\x77\x73\x20\x66\x6f\x72\x20\x57\x6f\x72\x6b\x67\x72\x6f\x75\x70\x73\x20\x33\x2e\x31\x61\x00\x02\x4c\x4d\x31\x2e\x32\x58\x30\x30\x32\x00\x02\x4c\x41\x4e\x4d\x41\x4e\x32\x2e\x31\x00\x02\x4e\x54\x20\x4c\x4d\x20\x30\x2e\x31\x32\x00'
-	SESSION_SETUP_REQUEST = b'\x00\x00\x00\x88\xffSMB\x73\x00\x00\x00\x00\x18\x07\xc0\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xfe\x00\x00\x40\x00\x0d\xff\x00\x88\x00\x04\x11\x0a\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\xd4\x00\x00\x00\x4b\x00\x00\x00\x00\x00\x00\x57\x00\x69\x00\x6e\x00\x64\x00\x6f\x00\x77\x00\x73\x00\x20\x00\x32\x00\x30\x00\x30\x00\x30\x00\x20\x00\x32\x00\x31\x00\x39\x00\x35\x00\x00\x00\x57\x00\x69\x00\x6e\x00\x64\x00\x6f\x00\x77\x00\x73\x00\x20\x00\x32\x00\x30\x00\x30\x00\x30\x00\x20\x00\x35\x00\x2e\x00\x30\x00\x00\x00'
-	TREE_CONNECT_REQUEST = b'\x00\x00\x00\x60\xffSMB\x75\x00\x00\x00\x00\x18\x07\xc0\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xfe\x00\x08\x40\x00\x04\xff\x00\x60\x00\x08\x00\x01\x00\x35\x00\x00\x5c\x00\x5c\x00\x31\x00\x39\x00\x32\x00\x2e\x00\x31\x00\x36\x00\x38\x00\x2e\x00\x31\x00\x37\x00\x35\x00\x2e\x00\x31\x00\x32\x00\x38\x00\x5c\x00\x49\x00\x50\x00\x43\x00\x24\x00\x00\x00\x3f\x3f\x3f\x3f\x3f\x00'
-	NAMED_PIPE_TRANS_REQUEST = b'\x00\x00\x00\x4a\xffSMB\x25\x00\x00\x00\x00\x18\x01\x28\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x08\x8e\xa3\x01\x08\x52\x98\x10\x00\x00\x00\x00\xff\xff\xff\xff\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x4a\x00\x00\x00\x4a\x00\x02\x00\x23\x00\x00\x00\x07\x00\x5c\x50\x49\x50\x45\x5c\x00'
-
 	sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 	sock.connect((ip_address, port))
 	sock.send(NEGOTIATE_PROTOCOL_REQUEST)
@@ -108,9 +178,10 @@ def check_ms17_010(ip_address:str,port:int= 445) -> boolean:
 	session_setup_response = sock.recv(RECV_BUFFER)
 	if len(session_setup_response) < 34:
 		return False
+	print(session_setup_response[44:].decode())
 
 	user_id = session_setup_response[32:34]
-
+ 
 	modified_tree_connect_request = list(TREE_CONNECT_REQUEST)
 	modified_tree_connect_request[32] = user_id[0]
 	modified_tree_connect_request[33] = user_id[1]
@@ -144,23 +215,46 @@ def check_smbghost(ip_address:str,port:int=445) -> boolean:
     
     return (res[68:70] != b"\x11\x03" or res[70:72] != b"\x02\x00")
 
-def check_vuln(ip_address:str,check_smb_version:dict,port:int=445)->dict:
-    print("\n[-] Check for exploit\n")
+def check_vuln(ip_address:str, port:int, server_info:dict, check_smb_version:dict)->dict:
+    print_title("Check for exploit")
     exploit_list = {
         "exploit":{
             #"MS08-067"     :False,   # MS08-067      - SMBv1
-            #""             :False,   # CVE-2012-1182 - SAMBA   Samba 3.0.x - 3.6.3 (inclusive)
+            "cve_2012_182"  :False,   # CVE-2012-1182 - SAMBA   Samba 3.0.x - 3.6.3 (inclusive)
             #"ms10-054"     :False,   # ms10-054      - SMBv1
             #"ms10-061"     :False,   # ms10-061      - SMBv1
-            #"SambaCry"     :False    # CVE-2017-7494 - SAMBA   Samba 3.x after 3.5.0 and 4.x before 4.4.14, 4.5.x before 4.5.10, and 4.6.x before 4.6.4
+            "SambaCry"      :False,    # CVE-2017-7494 - SAMBA   Samba 3.x after 3.5.0 and 4.x before 4.4.14, 4.5.x before 4.5.10, and 4.6.x before 4.6.4
             "eternalblue"   :False,   # MS17-010      - SMBv1
             "smbghost"      :False    # CVE-2020-0796 - SMBv3
         }
     }
+    if(check_smb_version["1"]["isEnable"] and server_info["isLinux"]):
+        samba_version = get_samba_version(ip_address, port)
+
+        # CVE-2012-1182 - Samba 3.0.x - 3.6.3 (inclusive)
+        print(highlightBold("CVE-2012-1182") + ":\t\t\t",end="")
+        if(samba_version[0] == 3 and (samba_version[1] < 6  or
+        samba_version[1] == 6 and samba_version[2] <= 3)):
+            print(highlightRed("Vulnerable"))
+            exploit_list["exploit"]["cve_2012_182"] = True
+        else:
+            print(highlightGreen("Not vulnerable"))
+        print(highlightBold("SambaCry") + " (CVE-2017-7494):\t",end="")
+        # CVE-2017-7494 -  Samba 3.x after 3.5.0 and 4.x before 4.4.14, 4.5.x before 4.5.10, and 4.6.x before 4.6.4
+        if(samba_version[0] == 3 and samba_version[1] > 5 or (samba_version[0] == 4 and (
+            samba_version[1] < 4 or
+            samba_version[1] == 4 and samba_version[2] < 14 or
+            samba_version[1] == 5 and samba_version[2] < 10 or
+            samba_version[1] == 6 and samba_version[2] < 4
+        ))):
+            print(highlightRed("Vulnerable"))
+            exploit_list["exploit"]["SambaCry"] = True
+        else:
+            print(highlightGreen("Not vulnerable"))
 
     print(highlightBold("EternalBlue") + " (MS17-010):\t\t",end="")
-    if(check_smb_version["1"]["isEnable"] and check_ms17_010(ip_address, port)):
-        print(highlightRed("vulnerable"))
+    if(check_smb_version["1"]["isEnable"] and not server_info["isLinux"] and check_ms17_010(ip_address, port)):
+        print(highlightRed("Vulnerable"))
         exploit_list["exploit"]["eternalblue"] = True
     else:
         print(highlightGreen("Not vulnerable"))
@@ -185,7 +279,7 @@ def test_smb_version(ip_address:str, port:int=445,dialect:Literal=SMB2_DIALECT_3
     return False
 
 def check_smb_version(ip_address:str, port:int=445) -> dict:
-    print("\n[-] Testing smb versions\n")
+    print_title("Testing SMB versions")
     tab_version = {
         "1":{'diablect':smb.SMB_DIALECT,        'isEnable':False,'secure':False},
         "2.0":{'diablect':SMB2_DIALECT_002,     'isEnable':False,'secure':True},
@@ -249,6 +343,8 @@ def handle_sign_info(msg:str,type:str,is_enable:bool)->dict:
     return {type:is_enable}
 
 def check_signing(ip_address:str, port:int,tab_version:list, debug=False)->list:
+    print_title("Advance SMB information")
+
     tab_info = []
     for version in tab_version:
         if(tab_version[version]['isEnable'] and version != '1'):
@@ -318,7 +414,7 @@ def main_banner() -> None:
     print('  ╚════██║██║╚██╔╝██║██╔══██╗    ██╔══██║██║   ██║██║  ██║██║   ██║   ')
     print('  ███████║██║ ╚═╝ ██║██████╔╝    ██║  ██║╚██████╔╝██████╔╝██║   ██║   ')
     print('  ╚══════╝╚═╝     ╚═╝╚═════╝     ╚═╝  ╚═╝ ╚═════╝ ╚═════╝ ╚═╝   ╚═╝   \n')
-    print('  By: SecuProject - Version: 0.0.1-Dev\n\n')
+    print('  By: SecuProject - Version: 0.0.1-Dev\n')
 
 def manage_arg() -> str:
     parser = argparse.ArgumentParser(description='ssh-audit is a tool for SMB configuration auditing.', usage='%(prog)s [-t IP_ADDRESS|-l FILE_NAME] [-p PORT] [-d] [-oj FILE_NAME]')
@@ -367,18 +463,19 @@ def main(tab_ip_address:dict, port:int, oj:str)->None:
     for ip_address in tab_ip_address:
         if(port_check(ip_address, port)):
             tab_info_ip = {ip_address:[]}
-            print_info("Target ip address:\t%s\n\n" % highlightBold(ip_address))
 
-            is_anonymous,server_info = login_anonymous(ip_address, port)
-            print_server_information(is_anonymous, server_info)
+            is_anonymous,server_info, share_list = login_anonymous(ip_address, port)
+            print_server_information(ip_address, is_anonymous, server_info, share_list)
 
             tab_version = check_smb_version(ip_address, port)
 
             tab_sign_info = check_signing(ip_address, port, tab_version)
             
-            exploit_list = check_vuln(ip_address,tab_version, port)
+            exploit_list = check_vuln(ip_address,port, server_info,tab_version)
 
 
+            tab_info_ip[ip_address].append({"Anonymous":is_anonymous})
+            tab_info_ip[ip_address].append({"ShareList":share_list})
             tab_info_ip[ip_address].append(server_info)
             tab_info_ip[ip_address].append(tab_version)
             tab_info_ip[ip_address].append(tab_sign_info)
