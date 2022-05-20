@@ -2,3 +2,5 @@
 smb-audit.log
 ipaddress.lst
 output.json
+
+test/*
